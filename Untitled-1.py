@@ -1,4 +1,5 @@
 import os
+import json
 from abc import ABC, abstractmethod
 
 class Person(ABC):
@@ -6,224 +7,339 @@ class Person(ABC):
         self._name = name
     
     @abstractmethod
-    def show_info(self):
+    def get_info(self):
         pass
 
 class Book:
     def __init__(self, title, author):
         self.__title = title
         self.__author = author
+        self.__is_taken = False
         self.__taken_by = None
-
+    
     def get_title(self):
         return self.__title
     
     def get_author(self):
         return self.__author
     
-    def is_taken(self):
-        return self.__taken_by is not None
+    def get_is_taken(self):
+        return self.__is_taken
     
-    def take(self, user_name):
-        if not self.__taken_by:
+    def get_taken_by(self):
+        return self.__taken_by
+    
+    def take_book(self, user_name):
+        if not self.__is_taken:
+            self.__is_taken = True
             self.__taken_by = user_name
             return True
         return False
     
     def return_book(self):
-        self.__taken_by = None
-        return True
+        if self.__is_taken:
+            self.__is_taken = False
+            self.__taken_by = None
+            return True
+        return False
+    
+    def book_info(self):
+        status = "Выдана" if self.__is_taken else "Доступна"
+        user_info = f" (у пользователя: {self.__taken_by})" if self.__is_taken else ""
+        return f"Книга: '{self.__title}', Автор: {self.__author}, Статус: {status}{user_info}"
 
 class User(Person):
     def __init__(self, name):
         super().__init__(name)
-        self.__my_books = []
-
-    def show_info(self):
-        return f"{self._name} (книг: {len(self.__my_books)})"
+        self.__taken_books = []
     
-    def get_books(self):
-        return self.__my_books
+    def get_info(self):
+        return f"Пользователь: {self._name}, Взято книг: {len(self.__taken_books)}"
     
-    def take_book(self, book):
-        if book.take(self._name):
-            self.__my_books.append(book.get_title())
+    def get_taken_books(self):
+        return self.__taken_books
+    
+    def take_book_for_user(self, book):
+        if book.take_book(self._name):
+            self.__taken_books.append(book.get_title())
             return True
         return False
     
-    def return_book(self, book):
+    def return_book_for_user(self, book):
         if book.return_book():
-            self.__my_books.remove(book.get_title())
+            if book.get_title() in self.__taken_books:
+                self.__taken_books.remove(book.get_title())
             return True
         return False
 
 class Librarian(Person):
-    def show_info(self):
+    def get_info(self):
         return f"Библиотекарь: {self._name}"
 
 class Library:
     def __init__(self):
         self.__books = []
         self.__users = []
+        self.__librarians = [Librarian("Админ")]
         self.__current_user = None
+        self.__current_librarian = None
         self.load_data()
     
     def load_data(self):
         if os.path.exists("books.txt"):
-            with open("books.txt", "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if line:
-                        parts = line.split("|")
-                        if len(parts) == 3:
-                            book = Book(parts[0], parts[1])
-                            if parts[2] != "None":
-                                book.take(parts[2])
-                            self.__books.append(book)
-
+            with open("books.txt", "r", encoding="utf-8") as file:
+                try:
+                    books_data = json.load(file)
+                    for book_data in books_data:
+                        book = Book(book_data["title"], book_data["author"])
+                        if book_data["is_taken"]:
+                            book.take_book(book_data["taken_by"])
+                        self.__books.append(book)
+                except:
+                    self.__books = []
+        
         if os.path.exists("users.txt"):
-            with open("users.txt", "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if line:
-                        name, books_str = line.split("|")
-                        user = User(name)
-                        if books_str:
-                            for book_title in books_str.split(","):
-                                if book_title:
-                                    user.get_books().append(book_title)
+            with open("users.txt", "r", encoding="utf-8") as file:
+                try:
+                    users_data = json.load(file)
+                    for user_data in users_data:
+                        user = User(user_data["name"])
+                        for book_title in user_data["taken_books"]:
+                            user.get_taken_books().append(book_title)
                         self.__users.append(user)
+                except:
+                    self.__users = []
     
     def save_data(self):
-        with open("books.txt", "w", encoding="utf-8") as f:
-            for book in self.__books:
-                taken_by = book.__taken_by if hasattr(book, '_Book__taken_by') else None
-                f.write(f"{book.get_title()}|{book.get_author()}|{taken_by}\n")
-                
-        with open("users.txt", "w", encoding="utf-8") as f:
-            for user in self.__users:
-                books_str = ",".join(user.get_books())
-                f.write(f"{user._name}|{books_str}\n")
-
-    def add_book(self):
-        title = input("Название книги: ")
-        author = input("Автор: ")
-        self.__books.append(Book(title, author))
-        print("Книга добавлена")
-    
-    def show_all_books(self):
+        books_data = []
         for book in self.__books:
-            status = "выдана" if book.is_taken() else "доступна"
-            print(f"{book.get_title()} - {book.get_author()} ({status})")
-    
-    def add_user(self):
-        name = input("Имя пользователя: ")
-        self.__users.append(User(name))
-        print("Пользователь добавлен")
-    
-    def show_all_users(self):
+            books_data.append({
+                "title": book.get_title(),
+                "author": book.get_author(),
+                "is_taken": book.get_is_taken(),
+                "taken_by": book.get_taken_by()
+            })
+        
+        with open("books.txt", "w", encoding="utf-8") as file:
+            json.dump(books_data, file, ensure_ascii=False, indent=2)
+        
+        users_data = []
         for user in self.__users:
-            print(user.show_info())
+            users_data.append({
+                "name": user._name,
+                "taken_books": user.get_taken_books()
+            })
+        
+        with open("users.txt", "w", encoding="utf-8") as file:
+            json.dump(users_data, file, ensure_ascii=False, indent=2)
+    
+    def librarian_login(self):
+        self.__current_librarian = self.__librarians[0]
+        print(f"Вы вошли как {self.__current_librarian.get_info()}")
+        return True
+    
+    def add_book(self):
+        title = input("Введите название книги: ")
+        author = input("Введите автора книги: ")
+        
+        for book in self.__books:
+            if book.get_title() == title and book.get_author() == author:
+                print("Такая книга уже есть в библиотеке!")
+                return
+        
+        new_book = Book(title, author)
+        self.__books.append(new_book)
+        print(f"Книга '{title}' успешно добавлена!")
+    
+    def remove_book(self):
+        title = input("Введите название книги для удаления: ")
+        author = input("Введите автора книги: ")
+        
+        for book in self.__books:
+            if book.get_title() == title and book.get_author() == author:
+                if book.get_is_taken():
+                    print("Эту книгу нельзя удалить, так как она выдана пользователю!")
+                    return
+                self.__books.remove(book)
+                print(f"Книга '{title}' успешно удалена!")
+                return
+        
+        print("Книга не найдена!")
+    
+    def register_user(self):
+        name = input("Введите имя нового пользователя: ")
+        
+        for user in self.__users:
+            if user._name == name:
+                print("Пользователь с таким именем уже существует!")
+                return
+        
+        new_user = User(name)
+        self.__users.append(new_user)
+        print(f"Пользователь '{name}' успешно зарегистрирован!")
+    
+    def view_all_users(self):
+        if not self.__users:
+            print("Нет зарегистрированных пользователей.")
+            return
+        
+        print("Список всех пользователей:")
+        for user in self.__users:
+            print(user.get_info())
+            taken_books = user.get_taken_books()
+            if taken_books:
+                print(f"  Взятые книги: {', '.join(taken_books)}")
+    
+    def view_all_books(self):
+        if not self.__books:
+            print("В библиотеке нет книг.")
+            return
+        
+        print("Список всех книг:")
+        for book in self.__books:
+            print(book.book_info())
     
     def user_login(self):
-        name = input("Ваше имя: ")
+        name = input("Введите ваше имя: ")
+        
         for user in self.__users:
             if user._name == name:
                 self.__current_user = user
-                print(f"Привет, {name}")
+                print(f"Вы вошли как {user.get_info()}")
                 return True
-        print("Пользователь не найден")
+        
+        print("Пользователь не найден! Обратитесь к библиотекарю для регистрации.")
         return False
     
-    def show_available_books(self):
-        for book in self.__books:
-            if not book.is_taken():
-                print(f"{book.get_title()} - {book.get_author()}")
-    
-    def take_book(self):
-        title = input("Название книги: ")
-        for book in self.__books:
-            if book.get_title() == title and not book.is_taken():
-                self.__current_user.take_book(book)
-                print("Книга взята")
-                return
-        print("Книга не найдена или уже выдана")
-    
-    def return_book(self):
-        if not self.__current_user.get_books():
-            print("У вас нет книг")
+    def view_available_books(self):
+        available_books = [book for book in self.__books if not book.get_is_taken()]
+        
+        if not available_books:
+            print("Нет доступных книг.")
             return
         
-        print("Ваши книги:", ", ".join(self.__current_user.get_books()))
-        title = input("Название книги для возврата: ")
+        print("Доступные книги:")
+        for book in available_books:
+            print(f"Книга: '{book.get_title()}', Автор: {book.get_author()}")
+    
+    def take_book(self):
+        title = input("Введите название книги: ")
+        author = input("Введите автора книги: ")
         
-        if title in self.__current_user.get_books():
+        for book in self.__books:
+            if book.get_title() == title and book.get_author() == author:
+                if self.__current_user.take_book_for_user(book):
+                    print(f"Книга '{title}' успешно взята!")
+                else:
+                    print("Эта книга уже выдана другому пользователю!")
+                return
+        
+        print("Книга не найдена!")
+    
+    def return_book(self):
+        title = input("Введите название книги: ")
+        author = input("Введите автора книги: ")
+        
+        if title not in self.__current_user.get_taken_books():
+            print("У вас нет такой книги!")
+            return
+        
+        for book in self.__books:
+            if book.get_title() == title and book.get_author() == author:
+                if self.__current_user.return_book_for_user(book):
+                    print(f"Книга '{title}' успешно возвращена!")
+                return
+        
+        print("Книга не найдена в библиотеке!")
+    
+    def view_my_books(self):
+        taken_books = self.__current_user.get_taken_books()
+        
+        if not taken_books:
+            print("У вас нет взятых книг.")
+            return
+        
+        print("Ваши книги:")
+        for title in taken_books:
             for book in self.__books:
-                if book.get_title() == title and book.is_taken():
-                    self.__current_user.return_book(book)
-                    print("Книга возвращена")
-                    return
-        print("У вас нет такой книги")
+                if book.get_title() == title:
+                    print(f"Книга: '{title}', Автор: {book.get_author()}")
+                    break
     
     def run(self):
         while True:
-            print("\n1. Библиотекарь")
-            print("2. Пользователь")
+            print("\nБИБЛИОТЕЧНАЯ СИСТЕМА")
+            print("1. Войти как библиотекарь")
+            print("2. Войти как пользователь")
             print("3. Выход")
-            choice = input("Выбор: ")
+            
+            choice = input("Выберите действие: ")
             
             if choice == "1":
-                self.librarian_menu()
+                if self.librarian_login():
+                    self.librarian_menu()
             elif choice == "2":
-                self.user_menu()
+                if self.user_login():
+                    self.user_menu()
             elif choice == "3":
                 self.save_data()
-                print("До свидания!")
+                print("Данные сохранены. До свидания!")
                 break
+            else:
+                print("Неверный выбор!")
     
     def librarian_menu(self):
-        librarian = Librarian("Админ")
-        print(librarian.show_info())
-        
         while True:
-            print("\n1. Добавить книгу")
-            print("2. Показать все книги")
-            print("3. Добавить пользователя")
-            print("4. Показать всех пользователей")
-            print("5. Назад")
-            choice = input("Выбор: ")
+            print("\nМЕНЮ БИБЛИОТЕКАРЯ")
+            print("1. Добавить новую книгу")
+            print("2. Удалить книгу из системы")
+            print("3. Зарегистрировать нового пользователя")
+            print("4. Просмотреть список всех пользователей")
+            print("5. Просмотреть список всех книг")
+            print("6. Выход")
+            
+            choice = input("Выберите действие: ")
             
             if choice == "1":
                 self.add_book()
             elif choice == "2":
-                self.show_all_books()
+                self.remove_book()
             elif choice == "3":
-                self.add_user()
+                self.register_user()
             elif choice == "4":
-                self.show_all_users()
+                self.view_all_users()
             elif choice == "5":
+                self.view_all_books()
+            elif choice == "6":
+                self.__current_librarian = None
                 break
+            else:
+                print("Неверный выбор!")
     
     def user_menu(self):
-        if not self.user_login():
-            return
-        
         while True:
-            print(f"\n1. Показать доступные книги")
+            print(f"\nМЕНЮ ПОЛЬЗОВАТЕЛЯ: {self.__current_user._name}")
+            print("1. Просмотреть доступные книги")
             print("2. Взять книгу")
             print("3. Вернуть книгу")
-            print("4. Назад")
-            choice = input("Выбор: ")
+            print("4. Просмотреть список взятых книг")
+            print("5. Выход")
+            
+            choice = input("Выберите действие: ")
             
             if choice == "1":
-                self.show_available_books()
+                self.view_available_books()
             elif choice == "2":
                 self.take_book()
             elif choice == "3":
                 self.return_book()
             elif choice == "4":
+                self.view_my_books()
+            elif choice == "5":
                 self.__current_user = None
                 break
+            else:
+                print("Неверный выбор!")
 
 if __name__ == "__main__":
     library = Library()
